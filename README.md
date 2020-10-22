@@ -11,5 +11,5 @@ Introduction to Business Analytics in R
 - [Negative association rule + association rule](https://github.com/bgg11117/MSBA6130/blob/main/Kaggle_olist/HW2_group.Rmd)
 
 Ref from 
-1. -[Negative association rules](https://subscription.packtpub.com/book/big_data_and_business_intelligence/9781788621878/1/ch01lvl1sec14/negative-association-rules)
-2. -[R-Data-Analysis-Projects](https://github.com/PacktPublishing/R-Data-Analysis-Projects/blob/master/Chapter01/scripts/AssocationRuleMining/NegARM.R)
+1. - [Negative association rules](https://subscription.packtpub.com/book/big_data_and_business_intelligence/9781788621878/1/ch01lvl1sec14/negative-association-rules)
+2. - [R-Data-Analysis-Projects](https://github.com/PacktPublishing/R-Data-Analysis-Projects/blob/master/Chapter01/scripts/AssocationRuleMining/NegARM.R)
