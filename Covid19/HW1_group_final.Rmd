@@ -1,0 +1,251 @@
+---
+title: "HW1_group_final"
+author: "Bgg"
+Date: "10/5/2020"
+output: html_document
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+library(tidyverse)
+library(ggthemes)
+library(choroplethr)
+library(choroplethrMaps)
+library(flexdashboard)
+library(usmap)
+library(DT)
+library(lubridate)
+library(shiny)
+library(gridExtra)
+# library(multipanelfigure)
+# library(BiocManager)
+# options(repos = BiocManager::repositories())
+# library(dplyr)
+# library(ggplot2)
+covid = read_csv("covid_cases.csv", col_types = cols(state=col_factor(),
+                                                    fips=col_factor())) %>%
+        select(c(2:10)) %>% mutate(ym=format(date, "%Y-%m"),
+                                   cumulative_deaths_per_capita=deaths/state_pop)%>%
+  rename(cumulative_cases=cases, cumulative_deaths=deaths,
+         cumulative_cases_per_capita=cases_per_capita, cumulative_case_per_capitacumulative_seven_day_avg=seven_day_avg, cumulative_seven_day_avg_percapita=seven_day_avg_percapita) %>%
+        select(c(1,10,2,6,3:5,7,11,8,9))
+dim(covid)
+head(covid)
+```
+
+```{r}
+final_covid <- covid %>%
+                  group_by(state) %>%
+                  arrange(date) %>%
+                  mutate(cases = cumulative_cases - lag(cumulative_cases, default = NA), deaths = cumulative_deaths - lag(cumulative_deaths, default = NA))
+final_covid$cases <- ifelse(is.na(final_covid$cases), final_covid$cumulative_cases, final_covid$cases)
+final_covid$deaths <- ifelse(is.na(final_covid$deaths), final_covid$cumulative_deaths, final_covid$deaths)
+final_covid
+```
+
+
+```{r create month value}
+end_month_final_covid <- final_covid %>% filter(date %in% as.Date(c('2020-01-31', '2020-02-29', '2020-03-31', '2020-04-30', '2020-05-31', '2020-06-30', '2020-07-31', '2020-08-31', '2020-09-28')))
+
+end_month_final_covid <- end_month_final_covid %>%
+                  group_by(state) %>%
+                  arrange(date) %>%
+                  mutate(month_cases = cumulative_cases - lag(cumulative_cases, default = NA), month_deaths = cumulative_deaths - lag(cumulative_deaths, default = NA)) %>% select(c(1:11, 14:15))
+
+end_month_final_covid$month_cases <- ifelse(is.na(end_month_final_covid$month_cases), end_month_final_covid$cumulative_cases, end_month_final_covid$month_cases)
+end_month_final_covid$month_deaths <- ifelse(is.na(end_month_final_covid$month_deaths), end_month_final_covid$cumulative_deaths, end_month_final_covid$month_deaths)
+
+end_month_final_covid <- end_month_final_covid %>% mutate(month_cases_per_capita = month_cases/state_pop, month_deaths_per_capita = month_deaths/state_pop,
+month_deaths_per_cases = cumulative_deaths/cumulative_cases, month_cases_per_100000_pop = (month_cases * 100000)/state_pop)
+
+end_month_final_covid
+```
+```{r}
+# final <- end_month_final_covid %>% filter(ym=='2020-09')
+# write_csv(final, 'end_month_cases_per_capital.csv')
+```
+
+
+```{r region comparison bar plot by ym}
+ui <- fluidPage(
+  selectInput("Date","Date",choices = unique(end_month_final_covid$ym)),
+  selectInput("Number of States to View","Number of States to View",choices = c(3:13)),
+  plotOutput("statetrendplot"))
+
+# month_cases_per_capita
+
+server <- function(input, output) {
+
+  higher_cases_per_capita_df <- reactive({
+              res <- head(subset(end_month_final_covid, ym == input$Date) %>% arrange(desc(month_cases_per_100000_pop)), as.numeric(input$`Number of States to View`))
+              return (res)
+  })
+
+  lower_cases_per_capita_df <- reactive({
+              res <- head(subset(end_month_final_covid, ym == input$Date) %>% arrange(month_cases_per_100000_pop),as.numeric(input$`Number of States to View`))
+              return (res)
+  })
+  
+  output$statetrendplot <- renderPlot({
+    # figure1 <- multi_panel_figure(columns = 2, rows = 2, panel_label_type = "none")
+    #  label= paste(round(month_cases_per_100000_pop, 3), '%')))
+    # cases_per_capita (lab)
+    # covid cases states per capita (ggtitle)
+    
+    q3 <- ggplot(higher_cases_per_capita_df(), aes(x=reorder(state, month_cases_per_100000_pop), y=month_cases_per_100000_pop, label= paste(round(month_cases_per_100000_pop, 1)))) + geom_col(fill="pink", alpha=0.6) + coord_flip() + theme_classic()+ labs(x="", y= "Cases per 100,000 people", caption = "Data source: NY Times Survey")+ theme(axis.text.x = element_text(size=14), axis.text.y = element_text(size=14), axis.line.x = element_blank(), axis.ticks.x = element_blank(), axis.ticks.y = element_line(color = "light grey"), axis.line.y = element_line(color = "light grey"), text = element_text(size=16)) + ggtitle(paste(input$`Number of States to View`, 'States with Highest COVID Case Rate
+')) + geom_text(size = 4, position = position_stack(vjust = 1.12))
+    
+    q4 <- ggplot(lower_cases_per_capita_df(), aes(x=reorder(state, -month_cases_per_100000_pop), y=month_cases_per_100000_pop, label=paste(round(month_cases_per_100000_pop, 1)))) + geom_col(fill="orange", alpha=0.2) + coord_flip() + theme_classic()+ labs(x="", y="Cases per 100,000 people",  caption = "Data source: NY Times Survey")+ theme(axis.text.x = element_text(size=14),axis.text.y = element_text(size=14), axis.line.x = element_blank(), axis.ticks.x = element_blank(), axis.ticks.y = element_line(color = "light grey"), axis.line.y = element_line(color = "light grey"), text = element_text(size=16)) + ggtitle(paste(input$`Number of States to View`, 'States with Lowest COVID Case Rate'))  + geom_text(size = 4, position = position_stack(vjust = 1.12))
+    
+  grid.arrange(q3, q4, nrow = 1)        
+    # figure1 %<>%
+    #   fill_panel(q1, column = 1, row = 1) %<>%
+    #   fill_panel(q2, column = 2, row = 1) %<>%
+    #   fill_panel(q3, column = 1, row = 2) %<>%
+    #   fill_panel(q4, column = 2, row = 2)
+    # figure1
+  })
+}
+shinyApp(ui, server)
+```
+
+```{r region comparison bar plot by ym}
+ui <- fluidPage(
+  selectInput("Date","Date",choices = unique(end_month_final_covid$ym)),
+  selectInput("Number of States to View","Number of States to View",choices = c(3:13)),
+  plotOutput("statetrendplot"))
+
+server <- function(input, output) {
+
+  higher_cases_per_capita_df <- reactive({
+              res <- head(subset(end_month_final_covid, ym == input$Date) %>% arrange(desc(month_deaths_per_cases)), as.numeric(input$`Number of States to View`))
+              return (res)
+  })
+
+  lower_cases_per_capita_df <- reactive({
+              res <- head(subset(end_month_final_covid, ym == input$Date) %>% arrange(month_deaths_per_cases),as.numeric(input$`Number of States to View`))
+              return (res)
+  })
+  
+  output$statetrendplot <- renderPlot({
+    # figure1 <- multi_panel_figure(columns = 2, rows = 2, panel_label_type = "none")
+
+    q3 <- ggplot(higher_cases_per_capita_df(), aes(x=reorder(state, month_deaths_per_cases), y=month_deaths_per_cases, label= paste(round(month_deaths_per_cases, 3), '%'))) + geom_col(fill="pink", alpha=0.6) + coord_flip() + theme_classic()+ labs(x="", y= "Per Case Death Rate", caption = "Data source: NY Times Survey")+ theme(axis.text.x = element_text(size=14), axis.text.y = element_text(size=14), axis.line.x = element_blank(), axis.ticks.x = element_blank(), axis.ticks.y = element_line(color = "light grey"), axis.line.y = element_line(color = "light grey"), text = element_text(size=16)) + ggtitle(paste(input$`Number of States to View`, 'States with Highest COVID Death Rates')) + geom_text(size = 4, position = position_stack(vjust = 1.12))
+    
+    q4 <- ggplot(lower_cases_per_capita_df(), aes(x=reorder(state, -month_deaths_per_cases), y=month_deaths_per_cases, label=paste(round(month_deaths_per_cases, 3), '%'))) + geom_col(fill="orange", alpha=0.2) + coord_flip() + theme_classic()+ labs(x="", y="Per Case Death Rate", caption = "Data source: NY Times Survey")+ theme(axis.text.x = element_text(size=14), axis.text.y = element_text(size=14), axis.line.x = element_blank(), axis.ticks.x = element_blank(), axis.ticks.y = element_line(color = "light grey"), axis.line.y = element_line(color = "light grey"), text = element_text(size=16)) + ggtitle(paste(input$`Number of States to View`, 'States with Highest COVID Death Rate'))  + geom_text(size = 4, position = position_stack(vjust = 1.12))
+    
+  grid.arrange(q3, q4, nrow = 1)        
+    # figure1 %<>%
+    #   fill_panel(q1, column = 1, row = 1) %<>%
+    #   fill_panel(q2, column = 2, row = 1) %<>%
+    #   fill_panel(q3, column = 1, row = 2) %<>%
+    #   fill_panel(q4, column = 2, row = 2)
+    # figure1
+  })
+}
+shinyApp(ui, server)
+```
+
+
+```{r region comparison bar plot by ym}
+# ui <- fluidPage(
+#   selectInput("Date","Date",choices = unique(end_month_final_covid$ym)),
+#   selectInput("num","num",choices = c(3:13)),
+#   plotOutput("statetrendplot"))
+# 
+# server <- function(input, output) {
+# 
+#   higher_cases_per_capita_df <- reactive({
+#               res <- head(subset(end_month_final_covid, ym == input$Date) %>% arrange(desc(month_deaths_per_capita)), as.numeric(input$num))
+#               return (res)
+#   })
+# 
+#   lower_cases_per_capita_df <- reactive({
+#               res <- head(subset(end_month_final_covid, ym == input$Date) %>% arrange(month_deaths_per_capita),as.numeric(input$num))
+#               return (res)
+#   })
+#   
+#   output$statetrendplot <- renderPlot({
+#     # figure1 <- multi_panel_figure(columns = 2, rows = 2, panel_label_type = "none")
+# 
+#     q3 <- ggplot(higher_cases_per_capita_df(), aes(x=reorder(state, month_deaths_per_capita), y=month_deaths_per_capita, label= paste(round(month_deaths_per_capita, 3), '%'))) + geom_col() + coord_flip() + theme_classic()+ labs(x="", y= "deaths_per_capita")+ theme(axis.text.x = element_text(size=14),axis.text.y = element_text(size=14))+ theme(text = element_text(size=20)) + ggtitle(paste('Highest', input$num, 'covid deaths states per capita')) + geom_text(size = 4, position = position_stack(vjust = 1.12))
+#     
+#     q4 <- ggplot(lower_cases_per_capita_df(), aes(x=reorder(state, -month_deaths_per_capita), y=month_deaths_per_capita, label=paste(round(month_deaths_per_capita, 3), '%'))) + geom_col() + coord_flip() + theme_classic()+ labs(x="", y="deaths_per_capita")+ theme(axis.text.x = element_text(size=14),axis.text.y = element_text(size=14))+ theme(text = element_text(size=20)) + ggtitle(paste('Lowest', input$num, 'covid deaths states per capita'))  + geom_text(size = 4, position = position_stack(vjust = 1.12))
+#     
+#   grid.arrange(q3, q4, nrow = 1)        
+#     # figure1 %<>%
+#     #   fill_panel(q1, column = 1, row = 1) %<>%
+#     #   fill_panel(q2, column = 2, row = 1) %<>%
+#     #   fill_panel(q3, column = 1, row = 2) %<>%
+#     #   fill_panel(q4, column = 2, row = 2)
+#     # figure1
+#   })
+# }
+# shinyApp(ui, server)
+```
+
+```{r mask map}
+library(readxl)
+library(plotly)
+mask <- read_excel("mask_usage_page2.xlsx")
+colnames(mask)[colnames(mask) == 'State'] <- 'state'
+dim(mask)
+head(mask)
+```
+
+```{r}
+mask
+```
+
+
+```{r}
+mask$hover <- with(mask, paste(State, ':', paste(round(ALWAYS*100, 2), "%")))
+# give state boundaries a white border
+l <- list(color = toRGB("white"), width = 2)
+# specify some map projection/options
+g <- list(
+  scope = 'usa',
+  projection = list(type = 'albers usa'),
+  text = "Source: data I found somewhere.",
+  showlakes = TRUE,
+  lakecolor = toRGB('white')
+)
+
+fig <- plot_geo(mask, locationmode = 'USA-states')
+fig <- fig %>% add_trace(
+    z = ~ALWAYS, text = ~hover, locations = ~State,
+    color = ~ALWAYS, colors = 'Blues'
+  )
+fig <- fig %>% colorbar(title = "Proportion")
+fig <- fig %>% layout(
+    title = 'Proportion of NY Times Survey Respondents Across US States \n Reporting “Always” Wearing a Mask in Public',
+    geo = g
+  )
+
+fig
+```
+
+
+```{r}
+plot_usmap(data = mask[c(1,6)], values = "ALWAYS", color = "red", labels = TRUE, alpha=0.9, label.size=0.05) + 
+                      scale_fill_continuous(
+                        low = "white", high = "pink", name = paste("Proportion"), label = scales::comma) + 
+                      theme(text = element_text(size=14), 
+                            legend.position = "right") + labs(subtitle = "Proportion of NY Times Survey Respondents Across US States \n Reporting “Always” Wearing a Mask in Public") 
+```
+
+
+```{r}
+mask[c(1,6)]
+```
+
