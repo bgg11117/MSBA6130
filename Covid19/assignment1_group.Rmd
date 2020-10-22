@@ -1,0 +1,598 @@
+---
+title: "group_hw1"
+author: "Bgg"
+date: "9/25/2020"
+output: html_document
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+library(tidyverse)
+library(ggthemes)
+library(choroplethr)
+library(choroplethrMaps)
+library(flexdashboard)
+library(usmap)
+library(DT)
+library(lubridate)
+library(shiny)
+library(gridExtra)
+# library(multipanelfigure)
+# library(BiocManager)
+# options(repos = BiocManager::repositories())
+# library(dplyr)
+# library(ggplot2)
+covid = read_csv("covid_cases.csv", col_types = cols(state=col_factor(),
+                                                    fips=col_factor())) %>%
+        select(c(2:10)) %>% mutate(ym=format(date, "%Y-%m"),
+                                   cumulative_deaths_per_capita=deaths/state_pop)%>%
+  rename(cumulative_cases=cases, cumulative_deaths=deaths,
+         cumulative_cases_per_capita=cases_per_capita, cumulative_case_per_capitacumulative_seven_day_avg=seven_day_avg, cumulative_seven_day_avg_percapita=seven_day_avg_percapita) %>%
+        select(c(1,10,2,6,3:5,7,11,8,9))
+dim(covid)
+head(covid)
+```
+
+```{r}
+final_covid <- covid %>%
+                  group_by(state) %>%
+                  arrange(date) %>%
+                  mutate(cases = cumulative_cases - lag(cumulative_cases, default = NA), deaths = cumulative_deaths - lag(cumulative_deaths, default = NA))
+final_covid$cases <- ifelse(is.na(final_covid$cases), final_covid$cumulative_cases, final_covid$cases)
+final_covid$deaths <- ifelse(is.na(final_covid$deaths), final_covid$cumulative_deaths, final_covid$deaths)
+final_covid
+```
+
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+# by_state <- covid %>% group_by(date,state) %>% summarize(total_cases = sum(cases),
+#             total_deaths = sum(deaths),
+#             death_ratio = total_deaths/total_cases,
+#             cure_ratio = 1-death_ratio)
+
+# by_state
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+```{r}
+datatable(final_covid)
+```
+
+
+```{r}
+map_plot <- function(df, date, values, color="red", labels=TRUE) {
+    size <- 24
+    new_df <-  df %>% filter(date==date) %>% select(c(3,6:9))
+    for (name in values){
+        plt <- plot_usmap(data = new_df, values = name, color = color, labels = labels, alpha=0.7) + 
+                  scale_fill_continuous(
+                    low = "white", high = "red", name = paste(name, " (by state)"), label = scales::comma) + 
+                  theme(text = element_text(size=size), 
+                        legend.position = "right")
+        print(plt)
+        Sys.sleep(0.3)            
+    }
+}
+```
+
+
+```{r}
+# col_names <- names(covid)[c(6:9)]
+# map_plot(final_covid, '2020-01-31', col_names)
+```
+
+
+```{r USA region plot by date}
+ui <- fluidPage(
+  selectInput("date","date",choices = unique(final_covid$date)),
+        selectInput("col", label = "col",
+                  choices = names(final_covid[c(8:9, 12:13)])),
+  plotOutput("countryplot"))
+
+server <- function(input, output) {
+  filtered_df <- reactive({
+              res <- subset(final_covid, date == input$date, select=c("date", "state", input$col))
+              return (res)
+  })
+  
+  output$countryplot <- renderPlot({
+    plot_usmap(data = filtered_df(), values = input$col, color = "red", labels = TRUE, alpha=0.7) + 
+                      scale_fill_continuous(
+                        low = "white", high = "red", name = paste(input$col, "(by state)"), label = scales::comma) + 
+                      theme(text = element_text(size=24), 
+                            legend.position = "right") + labs(subtitle = paste("USA in", input$date))
+  })
+}
+shinyApp(ui, server)
+```
+
+```{r state trend plot by date}
+ui <- fluidPage(
+  selectInput("state","state",choices = unique(final_covid$state)),
+  plotOutput("statetrendplot"))
+
+server <- function(input, output) {
+  filtered_df <- reactive({
+              res <- subset(final_covid, state == input$state)
+              return (res)
+  })
+  
+  output$statetrendplot <- renderPlot({
+    # figure1 <- multi_panel_figure(columns = 2, rows = 2, panel_label_type = "none")
+    
+    q1 <- ggplot(filtered_df(), aes(x=date, y=cases)) + geom_line() +scale_x_date(date_labels = "%Y-%b-%d") + theme_classic() + ggtitle(paste(input$state, "cases")) + 
+                      theme(text = element_text(size=14))
+    q2 <- ggplot(filtered_df(), aes(x=date, y=deaths)) + geom_line()+scale_x_date(date_labels = "%Y-%b-%d") + theme_classic()+ ggtitle(paste(input$state, "deaths"))+ theme(text = element_text(size=14))
+    q3 <- ggplot(filtered_df(), aes(x=date, y=cumulative_cases_per_capita)) + geom_line()+scale_x_date(date_labels = "%Y-%b-%d") + theme_classic()+ ggtitle(paste(input$state, "cumulative_cases_per_capita")) + theme(text = element_text(size=14))
+    q4 <- ggplot(filtered_df(), aes(x=date, y=cumulative_deaths_per_capita)) + geom_line()+scale_x_date(date_labels = "%Y-%b-%d") + theme_classic()+ ggtitle(paste(input$state, "cumulative_deaths_per_capita"))+ theme(text = element_text(size=14))
+    
+    grid.arrange(q1, q2, q3, q4, nrow = 2)
+  
+  })
+}
+shinyApp(ui, server)
+```
+
+```{r region comparison bar plot by date}
+ui <- fluidPage(
+  selectInput("date","date",choices = unique(final_covid$date)),
+  selectInput("num","num",choices = c(1:10)),
+  plotOutput("statetrendplot"))
+
+server <- function(input, output) {
+  cases_df <- reactive({
+              res <- head(subset(final_covid, date == input$date) %>% arrange(desc(cases)), as.numeric(input$num))
+              return (res)
+  })
+
+  deaths_df <- reactive({
+              res <- head(subset(final_covid, date == input$date) %>% arrange(desc(deaths)), as.numeric(input$num))
+              return (res)
+  })
+  
+  cases_per_capita_df <- reactive({
+              res <- head(subset(final_covid, date == input$date) %>% arrange(desc(cumulative_cases_per_capita)), as.numeric(input$num))
+              return (res)
+  })
+
+  deaths_per_capita_df <- reactive({
+              res <- head(subset(final_covid, date == input$date) %>% arrange(desc(cumulative_deaths_per_capita)), as.numeric(input$num))
+              return (res)
+  })  
+  
+  output$statetrendplot <- renderPlot({
+    # figure1 <- multi_panel_figure(columns = 2, rows = 2, panel_label_type = "none")
+    
+    q1 <- ggplot(cases_df(), aes(x=reorder(state, cases), y=cases)) + geom_col() + coord_flip() + theme_classic() + labs(x=paste("top_",input$num,"_state"))+ theme(axis.text.x = element_text(size=14), axis.text.y = element_text(size=14))+ theme(text = element_text(size=20)) 
+    q2 <- ggplot(deaths_df(), aes(x=reorder(state, deaths), y=deaths)) + geom_col() + coord_flip() + theme_classic()+ labs(x=paste("top_",input$num,"_state"))+ theme(axis.text.x = element_text(size=14),axis.text.y = element_text(size=14))+ theme(text = element_text(size=20))
+    q3 <- ggplot(cases_per_capita_df(), aes(x=reorder(state, cumulative_cases_per_capita), y=cumulative_cases_per_capita)) + geom_col() + coord_flip() + theme_classic()+ labs(x=paste("top_",input$num,"_state"))+ theme(axis.text.x = element_text(size=14),axis.text.y = element_text(size=14))+ theme(text = element_text(size=20))
+    q4 <- ggplot(deaths_per_capita_df(), aes(x=reorder(state, cumulative_deaths_per_capita), y=cumulative_deaths_per_capita)) + geom_col() + coord_flip() + theme_classic()+ labs(x=paste("top_",input$num,"_state"))+ theme(axis.text.x = element_text(size=14),axis.text.y = element_text(size=14))+ theme(text = element_text(size=20))
+    
+  grid.arrange(q1, q2, q3, q4, nrow = 2)    
+    
+    # figure1 %<>%
+    #   fill_panel(q1, column = 1, row = 1) %<>%
+    #   fill_panel(q2, column = 2, row = 1) %<>%
+    #   fill_panel(q3, column = 1, row = 2) %<>%
+    #   fill_panel(q4, column = 2, row = 2)
+    # figure1
+  })
+}
+shinyApp(ui, server)
+```
+
+
+```{r create month value}
+end_month_final_covid <- final_covid %>% filter(date %in% as.Date(c('2020-01-31', '2020-02-29', '2020-03-31', '2020-04-30', '2020-05-31', '2020-06-30', '2020-07-31', '2020-08-31', '2020-09-28')))
+
+end_month_final_covid <- end_month_final_covid %>%
+                  group_by(state) %>%
+                  arrange(date) %>%
+                  mutate(month_cases = cumulative_cases - lag(cumulative_cases, default = NA), month_deaths = cumulative_deaths - lag(cumulative_deaths, default = NA)) %>% select(c(1:11, 14:15))
+
+end_month_final_covid$month_cases <- ifelse(is.na(end_month_final_covid$month_cases), end_month_final_covid$cumulative_cases, end_month_final_covid$month_cases)
+end_month_final_covid$month_deaths <- ifelse(is.na(end_month_final_covid$month_deaths), end_month_final_covid$cumulative_deaths, end_month_final_covid$month_deaths)
+
+end_month_final_covid <- end_month_final_covid %>% mutate(month_cases_per_capita = month_cases/state_pop, month_deaths_per_capita = month_deaths/state_pop)
+
+end_month_final_covid
+```
+```{r}
+# final <- end_month_final_covid %>% filter(ym=='2020-09')
+# write_csv(final, 'end_month_cases_per_capital.csv')
+```
+
+
+```{r region comparison bar plot by ym}
+ui <- fluidPage(
+  selectInput("date","date",choices = unique(end_month_final_covid$ym)),
+  selectInput("num","num",choices = c(1:10)),
+  plotOutput("statetrendplot"))
+
+server <- function(input, output) {
+  cases_df <- reactive({
+              res <-  head(subset(end_month_final_covid, ym == input$date) %>% arrange(desc(month_cases)), as.numeric(input$num))
+              return (res)
+  })
+
+  deaths_df <- reactive({
+              res <- head(subset(end_month_final_covid, ym == input$date) %>% arrange(desc(month_deaths)), as.numeric(input$num))
+              return (res)
+  })
+  
+  cases_per_capita_df <- reactive({
+              res <- head(subset(end_month_final_covid, ym == input$date) %>% arrange(desc(month_cases_per_capita)), as.numeric(input$num))
+              return (res)
+  })
+
+  deaths_per_capita_df <- reactive({
+              res <- head(subset(end_month_final_covid, ym == input$date) %>% arrange(desc(month_deaths_per_capita)), as.numeric(input$num))
+              return (res)
+  })  
+  
+  output$statetrendplot <- renderPlot({
+    # figure1 <- multi_panel_figure(columns = 2, rows = 2, panel_label_type = "none")
+    
+    q1 <- ggplot(cases_df(), aes(x=reorder(state, month_cases), y=month_cases)) + geom_col() + coord_flip() + theme_classic() + labs(x=paste("top_",input$num,"_state"))+ theme(axis.text.x = element_text(size=14), axis.text.y = element_text(size=14))+ theme(text = element_text(size=20)) 
+    q2 <- ggplot(deaths_df(), aes(x=reorder(state, month_deaths), y=month_deaths)) + geom_col() + coord_flip() + theme_classic()+ labs(x=paste("top_",input$num,"_state"))+ theme(axis.text.x = element_text(size=14),axis.text.y = element_text(size=14))+ theme(text = element_text(size=20))
+    q3 <- ggplot(cases_per_capita_df(), aes(x=reorder(state, month_cases_per_capita), y=month_cases_per_capita)) + geom_col() + coord_flip() + theme_classic()+ labs(x=paste("top_",input$num,"_state"))+ theme(axis.text.x = element_text(size=14),axis.text.y = element_text(size=14))+ theme(text = element_text(size=20))
+    q4 <- ggplot(deaths_per_capita_df(), aes(x=reorder(state, month_deaths_per_capita), y=month_deaths_per_capita)) + geom_col() + coord_flip() + theme_classic()+ labs(x=paste("top_",input$num,"_state"))+ theme(axis.text.x = element_text(size=14),axis.text.y = element_text(size=14))+ theme(text = element_text(size=20))
+    
+  grid.arrange(q1, q2, q3, q4, nrow = 2)        
+    # figure1 %<>%
+    #   fill_panel(q1, column = 1, row = 1) %<>%
+    #   fill_panel(q2, column = 2, row = 1) %<>%
+    #   fill_panel(q3, column = 1, row = 2) %<>%
+    #   fill_panel(q4, column = 2, row = 2)
+    # figure1
+  })
+}
+shinyApp(ui, server)
+```
+
+
+```{r state trend plot by ym}
+ui <- fluidPage(
+  selectInput("state","state",choices = unique(end_month_final_covid$state)),
+  plotOutput("statetrendplot"))
+
+server <- function(input, output) {
+  filtered_df <- reactive({
+              res <- subset(end_month_final_covid, state == input$state)
+              return (res)
+  })
+  
+  output$statetrendplot <- renderPlot({
+    # figure1 <- multi_panel_figure(columns = 2, rows = 2, panel_label_type = "none")
+    
+    q1 <- ggplot(filtered_df(), aes(x=date, y=month_cases)) + geom_line() +scale_x_date(date_labels = "%Y-%b-%d") + theme_classic() + ggtitle(paste(input$state, "month_cases")) + 
+                      theme(text = element_text(size=14))
+    q2 <- ggplot(filtered_df(), aes(x=date, y=month_deaths)) + geom_line()+scale_x_date(date_labels = "%Y-%b-%d") + theme_classic()+ ggtitle(paste(input$state, "month_deaths"))+ theme(text = element_text(size=14))
+    q3 <- ggplot(filtered_df(), aes(x=date, y=month_cases_per_capita)) + geom_line()+scale_x_date(date_labels = "%Y-%b-%d") + theme_classic()+ ggtitle(paste(input$state, "month_cases_per_capita")) + theme(text = element_text(size=14))
+    q4 <- ggplot(filtered_df(), aes(x=date, y=month_deaths_per_capita)) + geom_line()+scale_x_date(date_labels = "%Y-%b-%d") + theme_classic()+ ggtitle(paste(input$state, "month_deaths_per_capita"))+ theme(text = element_text(size=14))
+    
+  grid.arrange(q1, q2, q3, q4, nrow = 2)        
+    # 
+    # figure1 %<>%
+    #   fill_panel(q1, column = 1, row = 1) %<>%
+    #   fill_panel(q2, column = 2, row = 1) %<>%
+    #   fill_panel(q3, column = 1, row = 2) %<>%
+    #   fill_panel(q4, column = 2, row = 2)
+    # figure1
+  })
+}
+shinyApp(ui, server)
+```
+
+```{r USA region plot by ym}
+ui <- fluidPage(
+  selectInput("date","date",choices = unique(end_month_final_covid$ym)),
+        selectInput("col", label = "col",
+                  choices = names(end_month_final_covid[c(12:15)])),
+  plotOutput("countryplot"))
+
+server <- function(input, output) {
+  filtered_df <- reactive({
+              res <- subset(end_month_final_covid, ym == input$date, select=c("ym", "state", input$col))
+              return (res)
+  })
+  
+  output$countryplot <- renderPlot({
+    plot_usmap(data = filtered_df(), values = input$col, color = "red", labels = TRUE, alpha=0.7) + 
+                      scale_fill_continuous(
+                        low = "white", high = "red", name = paste(input$col, "(by state)"), label = scales::comma) + 
+                      theme(text = element_text(size=24), 
+                            legend.position = "right") + labs(subtitle = paste("USA in", input$date))
+  })
+}
+shinyApp(ui, server)
+```
+
+```{r USA region plot by date-- assemble}
+ui <- fluidPage(
+  selectInput("date","date",choices = unique(final_covid$date)),
+  plotOutput("countryplot"))
+
+server <- function(input, output) {
+  filtered_df <- reactive({
+              res <- subset(final_covid, date == input$date, select=c("date", "state","cases", "deaths", "cumulative_cases_per_capita", "cumulative_deaths_per_capita"))
+              return (res)
+  })
+  
+  output$countryplot <- renderPlot({
+    # figure1 <- multi_panel_figure(columns = 2, rows = 2, panel_label_type = "none")
+    
+    q1 <-  plot_usmap(data = filtered_df(), values = "cases", color = "red", labels = TRUE, alpha=0.7) + 
+                      scale_fill_continuous(
+                        low = "white", high = "red", name = paste("cases", "(by state)"), label = scales::comma) + 
+                      theme(text = element_text(size=14), 
+                            legend.position = "right") + labs(subtitle = paste("USA in", input$date))
+    
+    q2 <- plot_usmap(data = filtered_df(), values = "deaths", color = "red", labels = TRUE, alpha=0.7) + 
+                      scale_fill_continuous(
+                        low = "white", high = "red", name = paste("deaths", "(by state)"), label = scales::comma) + 
+                      theme(text = element_text(size=14), 
+                            legend.position = "right") + labs(subtitle = paste("USA in", input$date))
+    
+    q3 <- plot_usmap(data = filtered_df(), values = "cumulative_cases_per_capita", color = "red", labels = TRUE, alpha=0.7) + 
+                      scale_fill_continuous(
+                        low = "white", high = "red", name = paste("cumulative_cases_per_capita", "(by state)"), label = scales::comma) + 
+                      theme(text = element_text(size=14), 
+                            legend.position = "right") + labs(subtitle = paste("USA in", input$date))
+    
+    q4 <- plot_usmap(data = filtered_df(), values = "cumulative_deaths_per_capita", color = "red", labels = TRUE, alpha=0.7) + 
+                      scale_fill_continuous(
+                        low = "white", high = "red", name = paste("cumulative_deaths_per_capita", "(by state)"), label = scales::comma) + 
+                      theme(text = element_text(size=14), 
+                            legend.position = "right") + labs(subtitle = paste("USA in", input$date))
+    
+  grid.arrange(q1, q2, q3, q4, nrow = 2)        
+    
+    # figure1 %<>%
+    #   fill_panel(q1, column = 1, row = 1) %<>%
+    #   fill_panel(q2, column = 2, row = 1) %<>%
+    #   fill_panel(q3, column = 1, row = 2) %<>%
+    #   fill_panel(q4, column = 2, row = 2)
+    # figure1    
+  }, height = 1200, width = 1200)
+}
+shinyApp(ui, server)
+```
+
+
+```{r USA region plot by ym-- assemble}
+ui <- fluidPage(
+  selectInput("date","date",choices = unique(end_month_final_covid$ym)),
+  plotOutput("countryplot"))
+
+server <- function(input, output) {
+  filtered_df <- reactive({
+              res <- subset(end_month_final_covid, ym == input$date, select=c("ym", "state","month_cases", "month_deaths", "month_cases_per_capita", "month_deaths_per_capita"))
+              return (res)
+  })
+  
+  output$countryplot <- renderPlot({
+    # figure1 <- multi_panel_figure(columns = 2, rows = 2, panel_label_type = "none")
+    
+    q1 <-  plot_usmap(data = filtered_df(), values = "month_cases", color = "red", labels = TRUE, alpha=0.7) + 
+                      scale_fill_continuous(
+                        low = "white", high = "red", name = paste("month_cases", "(by state)"), label = scales::comma) + 
+                      theme(text = element_text(size=14), 
+                            legend.position = "right") + labs(subtitle = paste("USA in", input$date))
+    
+    q2 <- plot_usmap(data = filtered_df(), values = "month_deaths", color = "red", labels = TRUE, alpha=0.7) + 
+                      scale_fill_continuous(
+                        low = "white", high = "red", name = paste("month_deaths", "(by state)"), label = scales::comma) + 
+                      theme(text = element_text(size=14), 
+                            legend.position = "right") + labs(subtitle = paste("USA in", input$date))
+    
+    q3 <- plot_usmap(data = filtered_df(), values = "month_cases_per_capita", color = "red", labels = TRUE, alpha=0.7) + 
+                      scale_fill_continuous(
+                        low = "white", high = "red", name = paste("month_cases_per_capita", "(by state)"), label = scales::comma) + 
+                      theme(text = element_text(size=14), 
+                            legend.position = "right") + labs(subtitle = paste("USA in", input$date))
+    
+    q4 <- plot_usmap(data = filtered_df(), values = "month_deaths_per_capita", color = "red", labels = TRUE, alpha=0.7) + 
+                      scale_fill_continuous(
+                        low = "white", high = "red", name = paste("month_deaths_per_capita", "(by state)"), label = scales::comma) + 
+                      theme(text = element_text(size=14), 
+                            legend.position = "right") + labs(subtitle = paste("USA in", input$date))
+    
+  grid.arrange(q1, q2, q3, q4, nrow = 2)        
+    # figure1 %<>%
+    #   fill_panel(q1, column = 1, row = 1) %<>%
+    #   fill_panel(q2, column = 2, row = 1) %<>%
+    #   fill_panel(q3, column = 1, row = 2) %<>%
+    #   fill_panel(q4, column = 2, row = 2)
+    # figure1    
+  }, height = 1200, width = 1200)
+}
+shinyApp(ui, server)
+```
+
+```{r test}
+# ui <- dashboardPage(
+#   dashboardHeader(),
+#   dashboardSidebar(sidebarMenu(
+#        id = "sidebarmenu",  
+#        menuItem("Region plot by date-- assemble", tabName = "dashboard_date_assemble", icon = icon("dashboard")),
+#        menuItem("Region plot by ym-- assemble", tabName = "dashboard_ym_assemble", icon = icon("dashboard")))),
+#   dashboardBody(
+#     tabItems(
+# 
+#       tabItem(tabName = "dashboard_date_assemble",
+#         fluidRow(
+#     boxPlus(fluidPage(
+#   selectInput("assemble_date_plot1","assemble_date_plot1",choices = unique(final_covid$date)),
+#   plotOutput("regionplot_date_assemble"))))),  
+# 
+#       tabItem(tabName = "dashboard_ym_assemble",
+#         fluidRow(
+#     boxPlus(fluidPage(
+#   selectInput("assemble_month_plot1","assemble_month_plot1",choices = unique(end_month_final_covid$ym)),
+#   plotOutput("regionplot_ym_assemble")))))
+#   )
+#   )
+# )
+# 
+# server <- function(input, output) { 
+# 
+#   assemble_date_df <- reactive({
+#               
+#               res <- subset(final_covid, date == as.Date(input$assemble_date_plot1, "%Y-%m-%d"), select=c("date", "state","cases", "deaths", "cumulative_cases_per_capita", "cumulative_deaths_per_capita"))
+#               return (res)
+#   })
+#   
+#   assemble_month_df <- reactive({
+#               res <- subset(end_month_final_covid, ym == input$assemble_month_plot1, select=c("ym", "state","month_cases", "month_deaths", "month_cases_per_capita", "month_deaths_per_capita"))
+#               return (res)
+#   })
+#   
+# 
+#   output$regionplot_ym_assemble <- renderPlot({
+#     figure1 <- multi_panel_figure(columns = 2, rows = 2, panel_label_type = "none")
+# 
+#     q1 <-  plot_usmap(data = assemble_month_df(), values = "month_cases", color = "red", labels = TRUE, alpha=0.7) +
+#                       scale_fill_continuous(
+#                         low = "white", high = "red", name = paste("month_cases", "(by state)"), label = scales::comma) +
+#                       theme(text = element_text(size=14),
+#                             legend.position = "right") + labs(subtitle = paste("USA in", input$assemble_date_plot1))
+# 
+#     q2 <- plot_usmap(data = assemble_month_df(), values = "month_deaths", color = "red", labels = TRUE, alpha=0.7) +
+#                       scale_fill_continuous(
+#                         low = "white", high = "red", name = paste("month_deaths", "(by state)"), label = scales::comma) +
+#                       theme(text = element_text(size=14),
+#                             legend.position = "right") + labs(subtitle = paste("USA in", input$assemble_date_plot1))
+# 
+#     q3 <- plot_usmap(data = assemble_month_df(), values = "month_cases_per_capita", color = "red", labels = TRUE, alpha=0.7) +
+#                       scale_fill_continuous(
+#                         low = "white", high = "red", name = paste("month_cases_per_capita", "(by state)"), label = scales::comma) +
+#                       theme(text = element_text(size=14),
+#                             legend.position = "right") + labs(subtitle = paste("USA in", input$assemble_date_plot1))
+# 
+#     q4 <- plot_usmap(data = assemble_month_df(), values = "month_deaths_per_capita", color = "red", labels = TRUE, alpha=0.7) +
+#                       scale_fill_continuous(
+#                         low = "white", high = "red", name = paste("month_deaths_per_capita", "(by state)"), label = scales::comma) +
+#                       theme(text = element_text(size=14),
+#                             legend.position = "right") + labs(subtitle = paste("USA in", input$assemble_date_plot1))
+# 
+#     figure1 %<>%
+#       fill_panel(q1, column = 1, row = 1) %<>%
+#       fill_panel(q2, column = 2, row = 1) %<>%
+#       fill_panel(q3, column = 1, row = 2) %<>%
+#       fill_panel(q4, column = 2, row = 2)
+#     figure1
+#   }, height = 1200, width = 1200)
+#   
+#   output$regionplot_date_assemble <- renderPlot({
+#     figure1 <- multi_panel_figure(columns = 2, rows = 2, panel_label_type = "none")
+#     
+#     q1 <-  plot_usmap(data = assemble_date_df(), values = "cases", color = "red", labels = TRUE, alpha=0.7) + 
+#                       scale_fill_continuous(
+#                         low = "white", high = "red", name = paste("cases", "(by state)"), label = scales::comma) + 
+#                       theme(text = element_text(size=14), 
+#                             legend.position = "right") + labs(subtitle = paste("USA in", input$assemble_month_plot1))
+#     
+#     q2 <- plot_usmap(data = assemble_date_df(), values = "deaths", color = "red", labels = TRUE, alpha=0.7) + 
+#                       scale_fill_continuous(
+#                         low = "white", high = "red", name = paste("deaths", "(by state)"), label = scales::comma) + 
+#                       theme(text = element_text(size=14), 
+#                             legend.position = "right") + labs(subtitle = paste("USA in", input$assemble_month_plot1))
+#     
+#     q3 <- plot_usmap(data = assemble_date_df(), values = "cumulative_cases_per_capita", color = "red", labels = TRUE, alpha=0.7) + 
+#                       scale_fill_continuous(
+#                         low = "white", high = "red", name = paste("cumulative_cases_per_capita", "(by state)"), label = scales::comma) + 
+#                       theme(text = element_text(size=14), 
+#                             legend.position = "right") + labs(subtitle = paste("USA in", input$assemble_month_plot1))
+#     
+#     q4 <- plot_usmap(data = assemble_date_df(), values = "cumulative_deaths_per_capita", color = "red", labels = TRUE, alpha=0.7) + 
+#                       scale_fill_continuous(
+#                         low = "white", high = "red", name = paste("cumulative_deaths_per_capita", "(by state)"), label = scales::comma) + 
+#                       theme(text = element_text(size=14), 
+#                             legend.position = "right") + labs(subtitle = paste("USA in", input$assemble_month_plot1))
+#     
+#     figure1 %<>%
+#       fill_panel(q1, column = 1, row = 1) %<>%
+#       fill_panel(q2, column = 2, row = 1) %<>%
+#       fill_panel(q3, column = 1, row = 2) %<>%
+#       fill_panel(q4, column = 2, row = 2)
+#     figure1
+#   }, height = 1000, width = 1000)
+# }
+# shinyApp(ui, server)
+
+```
+
+
+```{r shiny example}
+# ui <- fluidPage(
+#   selectInput("p","p",choices = names(mtcars)),
+#   plotOutput("myplot"))
+# 
+# server <- function(input, output) {
+# 
+#   output$myplot <- renderPlot({
+#     boxplot(mpg ~ get(input$p) , data=mtcars)
+#   })
+# }
+# shinyApp(ui, server)
+```
+
+
+```{r mask map}
+library(readxl)
+library(plotly)
+mask <- read_excel("mask_usage_page2.xlsx")
+dim(mask)
+head(mask)
+```
+
+
+```{r}
+mask$hover <- with(mask, paste(State, '<br>', "wear_mask_ratio", ALWAYS))
+# give state boundaries a white border
+l <- list(color = toRGB("white"), width = 2)
+# specify some map projection/options
+g <- list(
+  scope = 'usa',
+  projection = list(type = 'albers usa'),
+  showlakes = TRUE,
+  lakecolor = toRGB('white')
+)
+
+fig <- plot_geo(mask, locationmode = 'USA-states')
+fig <- fig %>% add_trace(
+    z = ~ALWAYS, text = ~hover, locations = ~State,
+    color = ~ALWAYS, colors = 'Blues'
+  )
+fig <- fig %>% colorbar(title = "Ratio")
+fig <- fig %>% layout(
+    title = '2020 US mask wearing ratio by State',
+    geo = g
+  )
+
+fig
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+

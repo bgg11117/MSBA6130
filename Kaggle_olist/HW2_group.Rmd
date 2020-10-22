@@ -1,0 +1,219 @@
+---
+title: "HW2_group"
+author: "Ta-Chun Su"
+date: "10/22/2020"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+library(tidyverse)
+library(arules)
+library(ggplot2)
+```
+
+
+# negative association rule based on unique id
+
+```{r}
+# need to trim  ' "" ' , e.g. "LA" --> LA, otherwise the code produces error
+product <- read_csv("assignment2/product_category_name_translation.csv")
+```
+
+
+```{r}
+get.txn <- function(data.path, columns){
+  # Get transaction object for a given data file
+  #
+  # Args:
+  #  data.path:  data file name location
+  #  columns: transaction id and item id columns.
+  #
+  # Returns:
+  #   transaction object
+  transactions.obj <- read.transactions(file = data.path, format = "single",
+                                        sep = ",",
+                                        cols = columns,
+                                        header=TRUE,
+                                        rm.duplicates = FALSE,
+                                        quote = "", skip = 0,
+                                        encoding = "unknown")
+  
+  # 
+  # transactions.obj <- read.transactions(file = data.path, 
+  #                                       format = "basket", 
+  #                                       sep = ",",
+  #                                       rm.duplicates = FALSE,
+  #                                       quote = "", skip = 0,
+  #                                       encoding = "unknown")
+
+  
+  return(transactions.obj)
+}
+```
+
+
+```{r}
+get.rules <- function(support, confidence, transactions){
+  # Get Apriori rules for given support and confidence values
+  #
+  # Args:
+  #  support: support parameter
+  #  confidence: confidence parameter
+  #
+  # Returns:
+  #  rules object
+  parameters = list(
+    support = support,
+    confidence = confidence,
+    minlen  = 2,  # Minimal number of items per item set
+    maxlen  = 10, # Maximal number of items per item set
+    target  = "rules"
+    
+  )
+  
+  rules <- apriori(transactions, parameter = parameters)
+  return(rules)
+}
+```
+
+```{r}
+get.neg.rules <- function(transactions, itemList, support, confidence){
+  # Generate negative association rules for given support confidence value
+  #
+  # Args:
+  #  transactions: Transaction object, list of transactions
+  #  itemList : list of items to be negated in the transactions
+  #  support: Minimum support threshold
+  #  confidence: Minimum confidence threshold
+  # Returns:
+  #  A data frame with the best set negative rules and their support and confidence values
+  neg.transactions <- addComplement( transactions, labels = itemList)
+  rules <- get.rules(support, confidence, neg.transactions)
+  return(rules)
+}
+```
+
+
+```{r}
+# columns <- c("order_id", "product_id")
+columns <- c("customer_unique_id", "product_category_name_english") ## columns of interest in data file
+# data.path = 'data.csv'  ## Path to data file
+data.path = 'final_new_items.csv'  ## Path to data file
+
+transactions.obj <- get.txn(data.path, columns) ## create txn object
+
+itemList <- as.vector(product$product_category_name_english)
+
+neg.rules <- get.neg.rules(transactions.obj,itemList, support = .05, 
+                           confidence = .6)
+```
+
+```{r}
+neg.rules.nr <- neg.rules[!is.redundant(neg.rules)]
+
+labels(neg.rules.nr)[1:100]
+```
+
+
+```{r}
+inspect(sort(neg.rules.nr, decreasing = TRUE, na.last = NA, by = "lift")[1:50])
+```
+
+
+# association rule based on unique id
+
+```{r}
+items = read.transactions("items_wide.csv", format = "basket", sep = ",", rm.duplicates = TRUE)
+```
+
+
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+```{r}
+itemInfo(items)
+```
+
+```{r}
+itemFrequency(items)
+```
+
+```{r}
+itemFrequencyPlot(items)
+```
+
+
+```{r}
+rules = apriori(items, parameter = list(supp = 0.00005, conf = 0.00005, minlen=2))
+```
+
+```{r}
+# inspect(rules)
+# inspect(head(sort(rules, decreasing = TRUE, na.last = NA, by = "lift"), 20))
+inspect(sort(rules, decreasing = TRUE, na.last = NA, by = "lift"))
+```
+
+# cluster map
+
+```{r}
+cust_clust = read_csv("assignment2/olist_customers_clustered.csv")
+cust_clust <- cust_clust %>% mutate(lon=-lon, lat=-lat, clusters=as.factor(clusters))
+```
+```{r}
+```
+
+
+```{r}
+summary(cust_clust$lon)
+summary(cust_clust$lat)
+```
+
+
+```{r}
+ggplot(cust_clust, aes(x=lon, y=lat, color=clusters)) + geom_point()
+```
+
+
+```{r}
+library(maps)
+Brazil <- map_data("world") %>% filter(region=="Brazil")
+Brazil
+data <- world.cities %>% filter(country.etc=="Brazil")
+data
+```
+
+```{r}
+summary(data$lat)
+summary(data$long)
+```
+
+
+
+```{r}
+library(viridis)
+
+# ggplot() +
+#   geom_polygon(data = Brazil, aes(x=long, y = lat, group = group), fill="grey", alpha=0.3) +
+#   geom_point( data=cust_clust, aes(x=lon, y=lat, size=avg_price, color=clusters)) +
+#   scale_size_continuous(range=c(1,12)) +
+#   scale_color_viridis(trans="log") +
+#   theme_void()  + coord_map() # + ylim(50,59)
+```
+```{r}
+ggplot() +
+  geom_polygon(data = Brazil, aes(x=long, y = lat, group = group), fill="grey", alpha=0.3) +
+  geom_point( data=cust_clust, aes(x=lon, y=lat, color=clusters)) +
+  theme_void() + coord_map()
+```
+
